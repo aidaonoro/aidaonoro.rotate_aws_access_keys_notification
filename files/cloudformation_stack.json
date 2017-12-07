@@ -1,0 +1,23 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Creates the requires permissions for SNS to invoke Lambda",
+  "Parameters": {
+    "SnsArn": {
+      "Type": "String"
+    },
+    "LambdaArn": {
+      "Type": "String"
+    }
+  },
+  "Resources": {
+     "RotateSNSLambdaPermission": {
+       "Type" : "AWS::Lambda::Permission",
+       "Properties" : {
+         "Action" : "lambda:InvokeFunction",
+         "FunctionName" : { "Ref" : "LambdaArn" },
+         "Principal" : "sns.amazonaws.com",
+         "SourceArn" : { "Ref" : "SnsArn" }
+       }
+     }
+  }
+}

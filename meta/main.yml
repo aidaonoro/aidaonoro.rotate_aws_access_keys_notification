@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  author: Aída Oñoro
+  company: BBVA
+  description: Creates a SNS topic and an AWS Lambda that preiodically notify to rotate access keys
+  min_ansible_version: 2.0
+  platforms:
+  - name: EL
+    versions:
+    - all

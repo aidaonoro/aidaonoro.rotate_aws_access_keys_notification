@@ -1,0 +1,132 @@
+---
+- name: "ROTATE ACCESS KEYS | Create SNS topic"
+  run_once: True
+  local_action:
+    module: sns_topic
+    args:
+      name: "rotate-access-keys-{{ item.user }}"
+      state: present
+      display_name: "RotateAccessKeys{{ item.user }}"
+      region: "us-east-1"
+      subscriptions:
+        - endpoint: "{{ item.endpoint }}"
+          protocol: "email"
+  with_items: "{{subscripted_users}}"
+  register: sns_topics
+
+- name: "ROTATE ACCESS KEYS | Copy Lambda code"
+  run_once: True
+  local_action:
+    module: copy
+    args:
+      src: "files/rotate-access-keys.js"
+      dest: "/tmp/rotate-access-keys.js"
+
+- name: "ROTATE ACCESS KEYS | Compress Lambda"
+  run_once: True
+  local_action:
+    module: archive
+    args:
+      path: "/tmp/rotate-access-keys.js"
+      dest: "/tmp/rotate-access-keys.zip"
+      format: zip
+
+- name: "ROTATE ACCESS KEYS | Create dictionary to save users and their corresponding topics"
+  run_once: True
+  local_action:
+    module: set_fact
+    args:
+      env_lambda_vars: "{{ env_lambda_vars|default({}) | combine( {item.item.user: item.sns_arn} ) }}"
+  with_items: "{{ sns_topics.results }}"
+
+- name: "ROTATE ACCESS KEYS | Create environment vars for lambda"
+  run_once: True
+  local_action:
+    module: set_fact
+    args:
+      env_lambda_vars: "{{ env_lambda_vars | combine(awsAccount) }}"
+
+- name: "ROTATE ACCESS KEYS | Create a Lambda basic execution role"
+  run_once: True
+  local_action:
+    module: iam_role
+    args:
+      name: "lambda_basic_sns_execution"
+      assume_role_policy_document: "{{ lookup('file','assume_role_policy.json') }}"
+      state: present
+  register: role_arn
+
+- local_action:
+    module: set_fact
+    args:
+      policy_file: "{{ lookup('file','lambda_policy.json') | from_json }}"
+  run_once: True
+
+- name: "ROTATE ACCESS KEYS | Create basic lambda execution policy"
+  local_action:
+    module: iam_policy
+    args:
+      iam_type: "role"
+      iam_name: "lambda_basic_sns_execution"
+      policy_name: "lambda_basic_sns_execution_policy"
+      state: present
+      policy_json: "{{ policy_file }}"
+  run_once: True
+
+- name: "ROTATE ACCESS KEYS | Create Lambda"
+  local_action:
+    module: lambda
+    args:
+      name: 'rotate-access-keys'
+      state: present
+      zip_file: "/tmp/rotate-access-keys.zip"
+      runtime: 'nodejs6.10'
+      role: '{{ role_arn.iam_role.arn }}'
+      handler: 'rotate-access-keys.handler'
+      region: "us-east-1"
+      environment_variables: "{{ env_lambda_vars }}"
+  register: lambda_rotate
+  run_once: True
+
+- name: "ROTATE ACCESS KEYS | Create SNS GENERAL topic"
+  local_action:
+    module: sns_topic
+    args:
+      name: "rotate-access-keys-general"
+      state: present
+      display_name: "RotateAccessKeysGeneral"
+      region: "us-east-1"
+      subscriptions:
+        - endpoint: "arn:aws:lambda:us-east-1:{{ account_id }}:function:rotate-access-keys"
+          protocol: "lambda"
+  register: sns_general_topic
+  run_once: True
+
+- name: "ROTATE ACCESS KEYS | Take events of access key rotation alarms"
+  local_action:
+    module: cloudwatchevent_rule
+    args:
+      name: "rotate-access-keys-rule"
+      event_pattern: "{{ rotate_event_patern | to_json }}"
+      description: rotate-access-keys-rule
+      region: "us-east-1"
+      targets:
+        - id: "sns-rotate"
+          arn: "{{sns_general_topic.sns_arn}}"
+  run_once: True
+
+- name: "ROTATE ACCESS KEYS | Launch Cloud Formation stack in order to give SNS to execute Lambda"
+  local_action:
+    module: cloudformation
+    args:
+      stack_name: "rotate-access-keys-permissions-stack"
+      state: "present"
+      region: "us-east-1"
+      disable_rollback: true
+      template: "roles/samuel.rotate_access_keys_notification/files/cloudformation_stack.json"
+      template_parameters:
+        SnsArn: "{{ sns_general_topic.sns_arn }}"
+        LambdaArn: "arn:aws:lambda:us-east-1:{{ account_id }}:function:rotate-access-keys"
+      tags:
+        Compliance: "rotate-access-keys"
+  run_once: True

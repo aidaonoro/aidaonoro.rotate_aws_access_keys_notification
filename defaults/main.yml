@@ -1,0 +1,3 @@
+---
+
+rotate_event_patern: "{{ lookup('file', 'files/event_pattern.json') | from_json }}"

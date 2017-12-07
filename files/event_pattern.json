@@ -1,0 +1,13 @@
+{
+  "source": [
+    "aws.trustedadvisor"
+  ],
+  "detail-type": [
+    "Trusted Advisor Check Item Refresh Notification"
+  ],
+  "detail": {
+    "check-name": [
+      "IAM Access Key Rotation"
+    ]
+  }
+}
